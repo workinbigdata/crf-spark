@@ -14,30 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.intel.nlp
 
-private[nlp] class Path extends Serializable {
-  var rNode: Node = new Node
-  var lNode: Node = new Node
-  var cost: Double = 0.0
-  var fVector: Int = 0
+package com.intel.ssg.bdt.nlp
 
-  def calExpectation(expected: Array[Double], Z: Double,
-                     size: Int, featureCache: Array[Int]): Unit = {
-    val c: Double = math.exp(lNode.alpha + cost + rNode.beta - Z)
-    var idx: Int = fVector
-
-    while (featureCache(idx) != -1) {
-      expected(featureCache(idx) + lNode.y * size + rNode.y) += c
-      idx += 1
-    }
+private[nlp] class Params (
+    var err_num: Int,
+    var zeroOne: Int,
+    var expected: Array[Double],
+    var obj: Double) extends Serializable {
+  def merge(A: Params) = {
+    this.err_num += A.err_num
+    this.zeroOne += A.zeroOne
+    this.expected = (breeze.linalg.Vector(A.expected) + breeze.linalg.Vector(this.expected)).toArray
+    this.obj += A.obj
+    this
   }
-
-  def add(lnd: Node, rnd: Node): Unit = {
-    lNode = lnd
-    rNode = rnd
-    lNode.rPath.append(this)
-    rNode.lPath.append(this)
-  }
-
 }

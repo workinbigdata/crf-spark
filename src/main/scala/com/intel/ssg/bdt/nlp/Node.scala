@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.intel.nlp
 
-import breeze.numerics.{log, exp}
+package com.intel.ssg.bdt.nlp
+
 import scala.collection.mutable.ArrayBuffer
 
 private[nlp] class Node extends Serializable {
@@ -28,8 +28,8 @@ private[nlp] class Node extends Serializable {
   var bestCost: Double = 0.0
   var prev: Node = _
   var fVector: Int = 0
-  var lPath: ArrayBuffer[Path] = new ArrayBuffer[Path]()
-  var rPath: ArrayBuffer[Path] = new ArrayBuffer[Path]()
+  val lPath: ArrayBuffer[Path] = new ArrayBuffer[Path]()
+  val rPath: ArrayBuffer[Path] = new ArrayBuffer[Path]()
   val MINUS_LOG_EPSILON = 50.0
 
   def logSumExp(x: Double, y: Double, flg: Boolean): Double = {
@@ -40,7 +40,7 @@ private[nlp] class Node extends Serializable {
       if (vMax > (vMin + MINUS_LOG_EPSILON)) {
         vMax
       } else {
-        vMax + log(exp(vMin - vMax) + 1.0)
+        vMax + math.log(math.exp(vMin - vMax) + 1.0)
       }
     }
   }
@@ -60,7 +60,7 @@ private[nlp] class Node extends Serializable {
   }
 
   def calExpectation(expected: Array[Double], Z: Double, size: Int,
-                     featureCache: Array[Int]): Unit = {
+                     featureCache: ArrayBuffer[Int]): Unit = {
     val c: Double = math.exp(alpha + beta -cost - Z)
 
     var idx: Int = fVector

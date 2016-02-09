@@ -14,117 +14,62 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.intel.nlp
 
-import breeze.numerics.{exp, log}
+package com.intel.ssg.bdt.nlp
+
 import scala.collection.mutable.ArrayBuffer
 import org.apache.spark.broadcast.Broadcast
 
-private[nlp] class Tagger (var ySize: Int,
-                           mode: Int) extends Serializable {
-  // mode: LEARN 2, TEST 1
-  var nBest: Int = 0
-  var cost: Double = 0.0
-  var Z: Double = 0.0
-  var feature_id: Int = 0
-  var thread_id: Int = 0
-  var x: ArrayBuffer[Array[String]] = new ArrayBuffer[Array[String]]()
-  var node: ArrayBuffer[ArrayBuffer[Node]] = new ArrayBuffer[ArrayBuffer[Node]]
-  var answer: ArrayBuffer[Int] = new ArrayBuffer[Int]()
-  var result: ArrayBuffer[Int] = new ArrayBuffer[Int]()
+private[nlp] trait Mode
+
+private[nlp] case object LearnMode extends Mode
+
+private[nlp] case object TestMode extends Mode
+
+private[nlp] class Tagger (
+    ySize: Int,
+    mode: Mode) extends Serializable {
+  var nBest = 0
+  var cost = 0.0
+  var Z = 0.0
   val MINUS_LOG_EPSILON = 50
-  var obj: Double = 0.0
-  var featureCache = Array[Int]()
-  var featureCacheH= Array[Int]()
-  var costFactor: Double = 1.0
+  var obj = 0.0
+  var costFactor = 1.0
+  val x: ArrayBuffer[Array[String]] = new ArrayBuffer[Array[String]]()
+  val node: ArrayBuffer[ArrayBuffer[Node]] = new ArrayBuffer[ArrayBuffer[Node]]
+  val answer: ArrayBuffer[Int] = new ArrayBuffer[Int]()
+  val result: ArrayBuffer[Int] = new ArrayBuffer[Int]()
+  val featureCache = new ArrayBuffer[Int]()
+  val featureCacheIndex = new ArrayBuffer[Int]()
+
 
   def setCostFactor(costFactor: Double) = {
     this.costFactor = costFactor
     this
   }
 
-  def read(lines: Array[String], feature_idx: Feature) {
-    var i: Int = 0
+  def read(lines: Sequence, feature_idx: FeatureIndex) {
     var columns: Array[String] = null
-    var j: Int = 0
-    lines.foreach{ t =>
-      columns = t.split('|')
-      if (mode == 2) {
-        for (y <- feature_idx.labels if y.equals(columns(feature_idx.tokensSize)))
+    lines.toArray.foreach{ t =>
+      mode match {
+      case LearnMode =>
+        for (y <- feature_idx.labels if y.equals(t.label))
           answer.append(feature_idx.labels.indexOf(y))
-        x.append(columns.dropRight(1))
-      } else {
-        x.append(columns)
+        x.append(t.tags)
+      case TestMode =>
+        x.append(t.tags)
         answer.append(0)
       }
       result.append(0)
     }
   }
 
-  def setFeatureId(id: Int): Unit = {
-    feature_id = id
-  }
-
-
-  /**
-   * Build the matrix to calculate
-   * cost of each node according to template
-   */
-  def buildLattice(bcAlpha: Broadcast[Array[Double]]): Unit = {
-    require(x.nonEmpty, "This sentence is null!")
-    rebuildFeatures
-
-    for (i <- x.indices) {
-      for (j <- 0 until ySize) {
-        node(i)(j) = calcCost(node(i)(j), bcAlpha)
-        var k = 0
-        while (k < node(i)(j).lPath.length) {
-          node(i)(j).lPath(k) = calcCost(node(i)(j).lPath(k), bcAlpha)
-          k += 1
-        }
-      }
-    }
-
-  }
-
-
-
-  def calcCost(n: Node, bcAlpha: Broadcast[Array[Double]]): Node = {
-    require(bcAlpha.value.nonEmpty, "There is no Alpha[Double] Broadcasted")
-    n.cost = 0.0
-    var cd: Double = 0.0
-    var idx: Int = n.fVector
-    while (featureCache(idx) != -1) {
-        cd += bcAlpha.value(featureCache(idx) + n.y)
-        n.cost = cd
-        idx += 1
-    }
-    n
-  }
-
-  def calcCost(p: Path, bcAlpha: Broadcast[Array[Double]]): Path = {
-    var c: Float = 0
-    var cd: Double = 0.0
-    var idx: Int = p.fVector
-    p.cost = 0.0
-    if (bcAlpha.value.nonEmpty) {
-      while (featureCache(idx) != -1) {
-        cd += bcAlpha.value(featureCache(idx) +
-          p.lNode.y * ySize + p.rNode.y)
-        p.cost = cd
-        idx += 1
-      }
-    }
-    p
-  }
-
-
   /**
    * Set node relationship and its feature index.
    * Node represents a word.
    */
   def rebuildFeatures {
-    var fid = feature_id
+    var fid = 0
 
     for (i <- x.indices) {
       val nodeList: ArrayBuffer[Node] = new ArrayBuffer[Node]()
@@ -134,7 +79,7 @@ private[nlp] class Tagger (var ySize: Int,
         val nd = new Node
         nd.x = i
         nd.y = k
-        nd.fVector = featureCacheH(fid)
+        nd.fVector = featureCacheIndex(fid)
         nodeList.append(nd)
         k += 1
       }
@@ -148,7 +93,7 @@ private[nlp] class Tagger (var ySize: Int,
         while (k < ySize) {
           val path: Path = new Path
           path.add(node(i - 1)(j), node(i)(k))
-          path.fVector = featureCacheH(fid)
+          path.fVector = featureCacheIndex(fid)
           k += 1
         }
       }
@@ -157,7 +102,7 @@ private[nlp] class Tagger (var ySize: Int,
   }
 
   /**
-   *Calculate the expectation of each node
+   * Calculate the expectation of each node
    * https://en.wikipedia.org/wiki/Forward%E2%80%93backward_algorithm
    * http://www.cs.columbia.edu/~mcollins/fb.pdf
    */
@@ -192,38 +137,38 @@ private[nlp] class Tagger (var ySize: Int,
    * Page 15
    */
   def viterbi(): Unit = {
-    var bestc: Double = -1e37
+    var bestCost: Double = -1e37
     var best: Node = null
 
     for (i <- x.indices) {
       for (j <- 0 until ySize) {
-        bestc = -1E37
+        bestCost = -1E37
         best = null
         var k = 0
         while (k < node(i)(j).lPath.length) {
           val cost = node(i)(j).lPath(k).lNode.bestCost + node(i)(j).lPath(k).cost + node(i)(j).cost
-          if (cost > bestc) {
-            bestc = cost
+          if (cost > bestCost) {
+            bestCost = cost
             best = node(i)(j).lPath(k).lNode
           }
           k += 1
         }
         node(i)(j).prev = best
         if (best != null) {
-          node(i)(j).bestCost = bestc
+          node(i)(j).bestCost = bestCost
         } else {
           node(i)(j).bestCost = node(i)(j).cost
         }
       }
     }
 
-    bestc = -1E37
+    bestCost = -1E37
     best = null
 
     for (j <- 0 until ySize) {
-      if (node(x.length - 1)(j).bestCost > bestc) {
+      if (node(x.length - 1)(j).bestCost > bestCost) {
         best = node(x.length - 1)(j)
-        bestc = node(x.length - 1)(j).bestCost
+        bestCost = node(x.length - 1)(j).bestCost
       }
     }
     var nd = best
@@ -231,13 +176,12 @@ private[nlp] class Tagger (var ySize: Int,
       result.update(nd.x, nd.y)
       nd = nd.prev
     }
-    cost = -node(x.length - 1)(result(x.length - 1)).bestCost   // TODO cost Never used
+    cost = -node(x.length - 1)(result(x.length - 1)).bestCost   // TODO cost will be used for nbest
   }
 
-  def gradient(expected: Array[Double], bcAlpha: Broadcast[Array[Double]]): Double = {
+  def gradient(expected: Array[Double], alpha: Array[Double]): Double = {
 
-
-    buildLattice(bcAlpha)
+    buildLattice(alpha)
     forwardBackward()
 
     for(i <- x.indices)
@@ -289,7 +233,7 @@ private[nlp] class Tagger (var ySize: Int,
     if (flg) return y
     val vMin: Double = math.min(x, y)
     val vMax: Double = math.max(x, y)
-    if (vMax > vMin + MINUS_LOG_EPSILON) vMax else vMax + log(exp(vMin - vMax) + 1.0)
+    if (vMax > vMin + MINUS_LOG_EPSILON) vMax else vMax + math.log(math.exp(vMin - vMax) + 1.0)
 
 }
 
@@ -301,29 +245,19 @@ private[nlp] class Tagger (var ySize: Int,
     viterbi()
   }
 
-
-  def createOutput(y: ArrayBuffer[String]) = {
-    val content: ArrayBuffer[String] = new ArrayBuffer[String]
-    x.foreach{ s =>
-      s.foreach{ t =>
-        content.append(t)}
-      content.append(y(result(x.indexOf(s))))
-    }
-    content.toArray
-  }
-
   def buildLattice(alpha: Array[Double]): Unit = {
 
     require(x.nonEmpty, "This sentence is null!")
     rebuildFeatures
     for (i <- x.indices) {
       for (j <- 0 until ySize) {
-        node(i)(j) = calcCost(node(i)(j), alpha)
+        val n = calcCost(node(i)(j), alpha)
         var k: Int = 0
-        while (k < node(i)(j).lPath.length) {
-          node(i)(j).lPath(k) = calcCost(node(i)(j).lPath(k), alpha)
+        while (k < n.lPath.length) {
+          n.lPath(k) = calcCost(n.lPath(k), alpha)
           k += 1
         }
+        node(i)(j) = n
       }
     }
   }
@@ -355,13 +289,5 @@ private[nlp] class Tagger (var ySize: Int,
       }
     }
     p
-  }
-
-  def cloneFeature(feature: Feature) = {
-    featureCache = Array.fill(feature.featureCache.size)(0)
-    featureCacheH = Array.fill(feature.featureCacheIndex.size)(0)
-    feature.featureCache.copyToArray(featureCache)
-    feature.featureCacheIndex.copyToArray(featureCacheH)
-    this
   }
 }
