@@ -76,7 +76,7 @@ class CRF private (
     featureIdx.buildDictionaryDist(taggers, bcFeatureIdxI, freq)
 
     val bcFeatureIdxII = trains.context.broadcast(featureIdx)
-    val taggerList: RDD[Tagger] = taggers.map(bcFeatureIdxII.value.buildFeatures(_)).cache()
+    val taggerList: RDD[Tagger] = taggers.map(bcFeatureIdxII.value.buildFeatures).cache()
 
     val model = runAlgorithm(taggerList, featureIdx)
     taggerList.unpersist()
@@ -92,7 +92,7 @@ class CRF private (
   def runAlgorithm(
     taggers: RDD[Tagger],
     featureIdx: FeatureIndex): CRFModel = {
-    var old_obj: Double = 1E37
+    var oldObj: Double = 1E37
     var converge: Int = 0
     var itr: Int = 0
     val all = taggers.map(_.x.size).reduce(_ + _)
@@ -106,39 +106,39 @@ class CRF private (
 
       val bcAlpha: Broadcast[Array[Double]] = taggers.context.broadcast(featureIdx.alpha)
       val treeDepth = math.ceil(math.log(taggers.partitions.length) / (math.log(2) * 2)).toInt
-      val tagger_ : Params = taggers.mapPartitions{ x =>
+      val results : Params = taggers.mapPartitions{ x =>
         val expected: Array[Double] = Array.fill(featureIdx.maxID)(0.0)
-        var obj_I: Double = 0.0
-        var err_num: Int = 0
+        var obj: Double = 0.0
+        var errNum: Int = 0
         var zeroOne: Int = 0
         while (x.hasNext){
-          val cur = x.next
-          obj_I += cur.gradient(expected, bcAlpha.value)
+          val cur = x.next()
+          obj += cur.gradient(expected, bcAlpha.value)
           val err = cur.eval()
-          err_num += err
+          errNum += err
           if(err != 0) zeroOne += 1
         }
-        Iterator(new Params(err_num, zeroOne, expected, obj_I))
+        Iterator(Params(errNum, zeroOne, expected, obj))
       }.treeReduce((p1, p2) => p1.merge(p2), treeDepth)
 
       // L2 regularization, TODO add L1 support
       // regParam = 1/(2.0 * sigma^2)
       for(k <- featureIdx.alpha.indices) {
-        tagger_.obj += featureIdx.alpha(k) * featureIdx.alpha(k) * regParam
-        tagger_.expected(k) += featureIdx.alpha(k) * regParam * 2.0
+        results.obj += featureIdx.alpha(k) * featureIdx.alpha(k) * regParam
+        results.expected(k) += featureIdx.alpha(k) * regParam * 2.0
       }
 
-      val diff = if (itr == 0) 1.0 else math.abs((old_obj - tagger_.obj) / old_obj)
-      old_obj = tagger_.obj
+      val diff = if (itr == 0) 1.0 else math.abs((oldObj - results.obj) / oldObj)
+      oldObj = results.obj
 
       logInfo("iter=%d, terr=%2.5f, serr=%2.5f, act=%d, obj=%2.5f, diff=%2.5f".format(
-        itr, 1.0 * tagger_.err_num / all,
-        1.0 * tagger_.zeroOne / sentences, featureIdx.maxID,
-        tagger_.obj, diff))
+        itr, 1.0 * results.err_num / all,
+        1.0 * results.zeroOne / sentences, featureIdx.maxID,
+        results.obj, diff))
 
       LBFGS.lbfgs(featureIdx.maxID, 5,
-        featureIdx.alpha, tagger_.obj,
-        tagger_.expected, false,
+        featureIdx.alpha, results.obj,
+        results.expected, false,
         diagH, iPrint, 1.0E-3, xTol, iFlag)
 
       converge = if (diff < eta) converge + 1 else 0
@@ -166,11 +166,11 @@ object CRF {
     train: RDD[Sequence],
     regParam: Double,
     freq: Int,
-    maxIter: Int,
+    maxIterion: Int,
     eta: Double): CRFModel = {
     new CRF().setRegParam(regParam)
       .setFreq(freq)
-      .setMaxIterations(maxIter)
+      .setMaxIterations(maxIterion)
       .setEta(eta)
       .runCRF(templates, train)
   }

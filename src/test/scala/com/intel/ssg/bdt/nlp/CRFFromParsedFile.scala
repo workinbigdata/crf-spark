@@ -17,9 +17,6 @@
 
 package com.intel.ssg.bdt.nlp
 
-import java.io.PrintWriter
-
-import scala.io.Source
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
@@ -27,21 +24,21 @@ object CRFFromParsedFile {
 
   def main(args: Array[String]) {
     val templateFile = "src/test/resources/chunking/template"
-    val trainFile = "src/test/resources/chunking/parsed/train.data"
-    val testFile = "src/test/resources/chunking/parsed/test.data"
+    val trainFile = "src/test/resources/chunking/serialized/train.data"
+    val testFile = "src/test/resources/chunking/serialized/test.data"
 
     val conf = new SparkConf().setAppName(s"${this.getClass.getSimpleName}")
     val sc = new SparkContext(conf)
 
-    val templates: Array[String] = Source.fromFile(templateFile).getLines.filter(_.nonEmpty).toArray
-    val trainRDD: RDD[Sequence] = sc.textFile(trainFile).filter(_.nonEmpty).map(Sequence.parse)
+    val templates: Array[String] = scala.io.Source.fromFile(templateFile).getLines().filter(_.nonEmpty).toArray
+    val trainRDD: RDD[Sequence] = sc.textFile(trainFile).filter(_.nonEmpty).map(Sequence.serializer)
 
     val model: CRFModel = CRF.train(templates, trainRDD, 0.25, 2)
 
-    val testRDD: RDD[Sequence] = sc.textFile(testFile).filter(_.nonEmpty).map(Sequence.parse)
+    val testRDD: RDD[Sequence] = sc.textFile(testFile).filter(_.nonEmpty).map(Sequence.serializer)
 
-    new PrintWriter("target/result/model") { write(model.toString); close }
-    val modelFromFile = CRFModel.parse(Source.fromFile("target/result/model").getLines.toArray)
+    new java.io.PrintWriter("target/model") { write(CRFModel.deSerializer(model)); close() }
+    val modelFromFile = CRFModel.serializer(scala.io.Source.fromFile("target/model").getLines().toArray.head)
 
     val results = modelFromFile.predict(testRDD)
     val score = results

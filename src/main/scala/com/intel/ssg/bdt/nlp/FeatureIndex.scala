@@ -17,7 +17,8 @@
 
 package com.intel.ssg.bdt.nlp
 
-import scala.collection.mutable.{ArrayBuffer, Map}
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.broadcast.Broadcast
@@ -30,7 +31,7 @@ private[nlp] class FeatureIndex extends Serializable {
   val unigramTempls = new ArrayBuffer[String]()
   val bigramTempls = new ArrayBuffer[String]()
   var labels = new ArrayBuffer[String]()
-  val dic = Map[String, (Int, Int)]()
+  val dic = mutable.HashMap[String, (Int, Int)]()
   val kMaxContextSize = 8
   val BOS = Array("_B-1", "_B-2", "_B-3", "_B-4",
     "_B-5", "_B-6", "_B-7", "_B-8")
@@ -68,7 +69,7 @@ private[nlp] class FeatureIndex extends Serializable {
   }
 
   def buildDictionary(tagger: Tagger) = {
-    val dicLocal = Map[String, Int]()
+    val dicLocal = mutable.HashMap[String, Int]()
     List(unigramTempls, bigramTempls).foreach{ templs =>
       tagger.x.foreach{ token =>
         if(tagger.x.head != token || templs.head.head.equals('U'))
@@ -119,7 +120,7 @@ private[nlp] class FeatureIndex extends Serializable {
   /**
     * Read one template file
     *
-    * @param lines the unit template file
+    * @param lines the template file
     */
   def openTemplate(lines: Array[String]): Unit = {
     var i: Int = 0
@@ -138,7 +139,7 @@ private[nlp] class FeatureIndex extends Serializable {
     head.append("maxid:")
     head.append(maxID.toString)
     head.append("cost-factor:")
-    head.append(1.toString)
+    head.append(1.0.toString)
     head.append("xsize:")
     head.append(tokensSize.toString)
     head.append("Labels:")
@@ -219,13 +220,13 @@ private[nlp] class FeatureIndex extends Serializable {
     }).reduceByKey(_ + _)
       .filter(_._2 >= freq)
     val dictionaryUni: RDD[(String, (Int, Int))] = dictionary.filter(_._1.head == 'U').zipWithIndex()
-      .map{ case((feature, freq), featureID) =>
-        (feature, (featureID.toInt * bcFeatureIdxI.value.labels.size, freq))
+      .map{ case((feature, frequency), featureID) =>
+        (feature, (featureID.toInt * bcFeatureIdxI.value.labels.size, frequency))
       }
-    val bcOffSet = taggers.context.broadcast(dictionaryUni.count.toInt * labels.size)
+    val bcOffSet = taggers.context.broadcast(dictionaryUni.count().toInt * labels.size)
     val dictionaryBi: RDD[(String, (Int, Int))] = dictionary.filter(_._1.head == 'B').zipWithIndex()
-      .map{ case((feature, freq), featureID) =>
-        (feature, (featureID.toInt * bcFeatureIdxI.value.labels.size * bcFeatureIdxI.value.labels.size + bcOffSet.value, freq))
+      .map{ case((feature, frequency), featureID) =>
+        (feature, (featureID.toInt * bcFeatureIdxI.value.labels.size * bcFeatureIdxI.value.labels.size + bcOffSet.value, frequency))
       }
 
     val dictionaryGram = dictionaryUni.union(dictionaryBi).collect()

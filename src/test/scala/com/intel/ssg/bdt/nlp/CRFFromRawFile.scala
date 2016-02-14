@@ -18,7 +18,6 @@
 
 package com.intel.ssg.bdt.nlp
 
-import scala.io.Source
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
@@ -32,7 +31,7 @@ object CRFFromRawFile {
     val conf = new SparkConf().setAppName(s"${this.getClass.getSimpleName}")
     val sc = new SparkContext(conf)
 
-    val templates: Array[String] = Source.fromFile(templateFile).getLines.filter(_.nonEmpty).toArray
+    val templates: Array[String] = scala.io.Source.fromFile(templateFile).getLines().filter(_.nonEmpty).toArray
     val trainRDD: RDD[Sequence] = sc.textFile(trainFile).filter(_.nonEmpty).map(sentence => {
       val tokens = sentence.split("\t")
       Sequence(tokens.map(token => {
@@ -43,7 +42,7 @@ object CRFFromRawFile {
 
     val model: CRFModel = CRF.train(templates, trainRDD, 0.25, 2)
 
-    val testRDDwithoutLabel: RDD[Sequence] = sc.textFile(testFile).filter(_.nonEmpty).map(sentence => {
+    val testRDDWithoutLabel: RDD[Sequence] = sc.textFile(testFile).filter(_.nonEmpty).map(sentence => {
       val tokens = sentence.split("\t")
       Sequence(tokens.map(token => {
         val tags = token.split('|')
@@ -51,8 +50,8 @@ object CRFFromRawFile {
       }))
     })
 
-    trainRDD.saveAsTextFile("target/result/train.data")
-    testRDDwithoutLabel.saveAsTextFile("target/result/test.data")
+    trainRDD.repartition(1).saveAsTextFile("target/result/train.data")
+    testRDDWithoutLabel.saveAsTextFile("target/result/test.data")
 
     val testRDDwithLabel: RDD[Sequence] = sc.textFile(testFile).filter(_.nonEmpty).map(sentence => {
       val tokens = sentence.split("\t")
@@ -62,7 +61,7 @@ object CRFFromRawFile {
       }))
     })
 
-    val results = model.predict(testRDDwithoutLabel)
+    val results = model.predict(testRDDWithoutLabel)
     val score = results
       .zipWithIndex()
       .map(_.swap)
@@ -70,7 +69,7 @@ object CRFFromRawFile {
       .map(_._2)
       .map(x => x._1.compare(x._2))
       .reduce(_ + _)
-    val total = testRDDwithoutLabel.map(_.toArray.length).reduce(_ + _)
+    val total = testRDDWithoutLabel.map(_.toArray.length).reduce(_ + _)
     println(s"Prediction Accuracy: $score / $total")
 
     sc.stop()

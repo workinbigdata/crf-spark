@@ -15,7 +15,8 @@ Features are extracted from the input using a template. That template contains a
 U00:%x[-2,0]
 U01:%x[-1,0]
 U02:%x[0,0]
-U03:%x[1,0]
+U03:%x[1,   -
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++0]
 U04:%x[2,0]
 U05:%x[-1,0]/%x[0,0]
 U06:%x[0,0]/%x[1,0]

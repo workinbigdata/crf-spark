@@ -17,7 +17,7 @@
 
 package com.intel.ssg.bdt.nlp
 
-private[nlp] class Params (
+case class Params (
     var err_num: Int,
     var zeroOne: Int,
     var expected: Array[Double],

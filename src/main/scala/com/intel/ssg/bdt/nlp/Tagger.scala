@@ -48,7 +48,7 @@ private[nlp] class Tagger (
     this
   }
 
-  def read(lines: Sequence, feature_idx: FeatureIndex) {
+  def read(lines: Sequence, feature_idx: FeatureIndex): Unit = {
     var columns: Array[String] = null
     lines.toArray.foreach{ t =>
       mode match {
@@ -66,9 +66,9 @@ private[nlp] class Tagger (
 
   /**
    * Set node relationship and its feature index.
-   * Node represents a word.
+   * Node represents a token.
    */
-  def rebuildFeatures {
+  def rebuildFeatures: Unit = {
     var fid = 0
 
     for (i <- x.indices) {

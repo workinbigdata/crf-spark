@@ -2,7 +2,7 @@ name := "crf-spark"
 
 version := "0.0.2"
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.11.7"
 
 
 libraryDependencies += "org.apache.spark" %% "spark-core" % "1.6.0"  % "provided"

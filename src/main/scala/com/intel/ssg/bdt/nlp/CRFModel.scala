@@ -28,7 +28,7 @@ case class CRFModel (
 
   override def toString: String = {
     val dicString = dic.map(x => x._1 + "|-|" + x._2.toString)
-    s"${head.mkString("\t")}\n${dicString.mkString("\t")}\n${alpha.mkString("\t")}"
+    s"${head.mkString("\t")}|--|${dicString.mkString("\t")}|--|${alpha.mkString("\t")}"
   }
 
   /**
@@ -38,39 +38,34 @@ case class CRFModel (
     * @param costFactor cost factor
     * @return Source files with the predictive labels
     */
-  def predict[T] (
-    tests: T,
-    costFactor: Double): T = {
-    tests match {
-      case tests: RDD[_] =>
-        if(tests.first().isInstanceOf[Sequence]) {
-          val bcModel = tests.context.broadcast(this)
-          tests.asInstanceOf[RDD[Sequence]].map { test =>
-            bcModel.value.testCRF(test, costFactor)
-          }.asInstanceOf[T]
-        } else{
-          throw new RuntimeException("Incompatible formats in Testing file")
-        }
-      case tests: Sequence =>
-        this.testCRF(tests.asInstanceOf[Sequence], costFactor).asInstanceOf[T]
-      case tests: Array[Sequence] =>
-        tests.asInstanceOf[Array[Sequence]].map { test =>
-          this.testCRF(test, costFactor)
-        }.asInstanceOf[T]
-      case _ =>
-        throw new RuntimeException("Incompatible formats in Testing file")
-    }
+  def predict(
+    tests: RDD[Sequence],
+    costFactor: Double): RDD[Sequence] = {
+      val bcModel = tests.context.broadcast(this)
+      tests.map { test =>
+        bcModel.value.testCRF(test, costFactor)
+      }
   }
 
-  def predict[T] (tests: T): T = {
+  def predict(
+    tests: Array[Sequence],
+    costFactor: Double): Array[Sequence] = {
+    tests.map(this.testCRF(_, costFactor))
+  }
+
+  def predict(tests: RDD[Sequence]): RDD[Sequence] = {
+    predict(tests, 1.0)
+  }
+
+  def predict(tests: Array[Sequence]): Array[Sequence] = {
     predict(tests, 1.0)
   }
 
   /**
     * Internal method to test the CRF model
     *
-    * @param test the line to be tested
-    * @return the line along with predictive labels
+    * @param test the sequence to be tested
+    * @return the sequence along with predictive labels
     */
   def testCRF(test: Sequence,
               costFactor: Double): Sequence = {
@@ -88,15 +83,20 @@ case class CRFModel (
 }
 
 object CRFModel {
-  def parse(s: Array[String]): CRFModel = {
-    require(s.length == 3, "Incompatible formats in Model file")
-    val head = s(0).split("\t")
-    val dic = s(1).split("\t").map(x => {
+  def serializer(source: String): CRFModel = {
+    val components = source.split("""\|--\|""")
+    require(components.length == 3, "Incompatible formats in Model file")
+    val head = components(0).split("\t")
+    val dic = components(1).split("\t").map(x => {
       val xx = x.split("""\|-\|""")
       require(xx.length == 2, "Incompatible formats in Model file")
       (xx(0), xx(1).toInt)
     })
-    val alpha = s(2).split("\t").map(_.toDouble)
+    val alpha = components(2).split("\t").map(_.toDouble)
     CRFModel(head, dic, alpha)
+  }
+
+  def deSerializer(model: CRFModel): String = {
+    model.toString
   }
 }
