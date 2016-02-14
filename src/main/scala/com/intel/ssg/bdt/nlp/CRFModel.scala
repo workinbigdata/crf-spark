@@ -83,7 +83,7 @@ case class CRFModel (
 }
 
 object CRFModel {
-  def serializer(source: String): CRFModel = {
+  def deSerializer(source: String): CRFModel = {
     val components = source.split("""\|--\|""")
     require(components.length == 3, "Incompatible formats in Model file")
     val head = components(0).split("\t")
@@ -96,7 +96,7 @@ object CRFModel {
     CRFModel(head, dic, alpha)
   }
 
-  def deSerializer(model: CRFModel): String = {
+  def serializer(model: CRFModel): String = {
     model.toString
   }
 }

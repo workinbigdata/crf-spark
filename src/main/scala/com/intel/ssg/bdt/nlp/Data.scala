@@ -41,14 +41,14 @@ object Token {
     * an [[com.intel.ssg.bdt.nlp.Token]].
     *
     */
-  def serializer(s: String): Token = {
+  def deSerializer(s: String): Token = {
     val parts = s.split("""\|--\|""")
     val label = parts(0)
     val tags = parts(1).split("""\|-\|""")
     Token.put(label, tags)
   }
 
-  def deSerializer(token: Token): String = {
+  def serializer(token: Token): String = {
     token.toString
   }
 
@@ -79,11 +79,11 @@ case class Sequence (sequence: Array[Token]) extends Serializable {
 }
 
 object Sequence {
-  def serializer(s: String): Sequence = {
+  def deSerializer(s: String): Sequence = {
     val tokens = s.split("\t")
-    Sequence(tokens.map(Token.serializer))
+    Sequence(tokens.map(Token.deSerializer))
   }
-  def deSerializer(sequence: Sequence): String = {
+  def serializer(sequence: Sequence): String = {
     sequence.toString
   }
 }

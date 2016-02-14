@@ -31,14 +31,14 @@ object CRFFromParsedFile {
     val sc = new SparkContext(conf)
 
     val templates: Array[String] = scala.io.Source.fromFile(templateFile).getLines().filter(_.nonEmpty).toArray
-    val trainRDD: RDD[Sequence] = sc.textFile(trainFile).filter(_.nonEmpty).map(Sequence.serializer)
+    val trainRDD: RDD[Sequence] = sc.textFile(trainFile).filter(_.nonEmpty).map(Sequence.deSerializer)
 
     val model: CRFModel = CRF.train(templates, trainRDD, 0.25, 2)
 
-    val testRDD: RDD[Sequence] = sc.textFile(testFile).filter(_.nonEmpty).map(Sequence.serializer)
+    val testRDD: RDD[Sequence] = sc.textFile(testFile).filter(_.nonEmpty).map(Sequence.deSerializer)
 
-    new java.io.PrintWriter("target/model") { write(CRFModel.deSerializer(model)); close() }
-    val modelFromFile = CRFModel.serializer(scala.io.Source.fromFile("target/model").getLines().toArray.head)
+    new java.io.PrintWriter("target/model") { write(CRFModel.serializer(model)); close() }
+    val modelFromFile = CRFModel.deSerializer(scala.io.Source.fromFile("target/model").getLines().toArray.head)
 
     val results = modelFromFile.predict(testRDD)
     val score = results
