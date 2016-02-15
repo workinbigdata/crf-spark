@@ -4,13 +4,27 @@ version := "0.1.0"
 
 scalaVersion := "2.10.4"
 
+spName := "hqzizania/crf-spark"
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "1.6.0"  % "provided"
+sparkVersion := "1.4.0"
 
-libraryDependencies += "org.apache.spark" % "spark-mllib_2.10" % "1.6.0"  % "provided"
-
-libraryDependencies += "com.github.scopt" %% "scopt" % "3.3.0"
-
-libraryDependencies += "org.apache.commons" % "commons-math3" % "3.2"
+sparkComponents += "mllib"
 
 resolvers += Resolver.sonatypeRepo("public")
+
+/********************
+  * Release settings *
+  ********************/
+
+spShortDescription := "crf-spark"
+
+spDescription := """A Spark-based implementation of Conditional Random Fields (CRFs) for labeling sequential data""".stripMargin
+
+credentials += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
+
+licenses += "Apache-2.0" -> url("http://opensource.org/licenses/Apache-2.0")
+
+spIncludeMaven := true
+
+credentials += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
+

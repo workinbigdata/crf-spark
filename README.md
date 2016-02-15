@@ -19,19 +19,18 @@ This documentation is for Spark 1.4+. Other version will probably work yet not t
 ### Scala API
 
 ```scala
-  val template = Array("U00:%x[-1,0]", "U01:%x[0,0]", "U00:%x[1,0]", "B")
-  val train = "B-NP|--|Friday|-|NNP\tB-NP|--|'s|-|POS\tI-NP|--|Market|-|NNP\tI-NP|--|Activity|-|NN"
-  val test = "B-NP|--|It|-|PRP\tB-VP|--|was|-|VBD\tB-NP|--|a|-|DT\tI-NP|--|Friday|-|NNP\tB-PP|--|in|-|IN\tB-NP|--|June|-|NNP\tO|--|.|-|."
+  val template = Array("U00:%x[-1,0]", "U01:%x[0,0]", "U02:%x[1,0]", "B")
+  val train = Array("B-NP|--|Friday|-|NNP\tB-NP|--|'s|-|POS", "I-NP|--|Market|-|NNP\tI-NP|--|Activity|-|NN")
+  val test = Array("null|--|Market|-|NNP\tnull|--|Activity|-|NN")
 
-  val trainRdd = sc.parallelize(Sequence.deSerializer(train))
+  val trainRdd = sc.parallelize(train).map(Sequence.deSerializer)
 
   val model = CRF.train(template, trainRdd)
-  val result = model.predict(Sequence.deSerializer(test))
-
+  val result = model.predict(test.map(Sequence.deSerializer))
 ```
 
 ### Building From Source
 
 ```scala
-sbt assembly
+sbt package
 ```
