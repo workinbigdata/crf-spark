@@ -29,3 +29,9 @@ This documentation is for Spark 1.4+. Other version will probably work yet not t
   val result = model.predict(Sequence.deSerializer(test))
 
 ```
+
+### Building From Source
+
+```scala
+sbt assembly
+```
