@@ -20,13 +20,15 @@ package com.intel.ssg.bdt.nlp
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
+import breeze.linalg.{DenseVector => BDV}
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.broadcast.Broadcast
 
 private[nlp] class FeatureIndex extends Serializable {
 
   var maxID = 0
-  var alpha: Array[Double] = null
+  var alpha = new BDV[Double](0)
   var tokensSize = 0
   val unigramTempls = new ArrayBuffer[String]()
   val bigramTempls = new ArrayBuffer[String]()
@@ -38,6 +40,10 @@ private[nlp] class FeatureIndex extends Serializable {
   val EOS = Array("_B+1", "_B+2", "_B+3", "_B+4",
     "_B+5", "_B+6", "_B+7", "_B+8")
 
+  def initAlpha() = {
+    alpha = BDV.zeros[Double](maxID)
+  }
+  
   def openTagSet(sentence: Sequence): FeatureIndex = {
     val tokenNum = sentence.toArray.map(_.tags.length).distinct
     require(tokenNum.length == 1,
@@ -149,13 +155,13 @@ private[nlp] class FeatureIndex extends Serializable {
     head.append("BGrams:")
     bigramTempls.foreach(head.append(_))
 
-    CRFModel(head.toArray, dic.map { case (k, v) => (k, v._1) }.toArray, alpha)
+    CRFModel(head.toArray, dic.map { case (k, v) => (k, v._1) }.toArray, alpha.toArray)
   }
 
   def readModel(models: CRFModel) = {
     val contents: Array[String] = models.head
     models.dic.foreach(x => dic.update(x._1, (x._2, 1)))
-    alpha = models.alpha
+    alpha = new BDV(models.alpha)
 
     var i: Int = 0
     var readMaxId: Boolean = false
@@ -233,6 +239,6 @@ private[nlp] class FeatureIndex extends Serializable {
 
     dictionaryGram.foreach( x => dic.update(x._1, x._2))
     maxID = dictionaryGram.map(_._2._1).max + labels.size * labels.size
-    alpha = Array.fill(maxID)(0.0)
+
   }
 }

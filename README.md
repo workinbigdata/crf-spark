@@ -34,3 +34,12 @@ This documentation is for Spark 1.4+. Other version will probably work yet not t
 ```scala
 sbt package
 ```
+
+## Contact & Feedback
+
+ If you encounter bugs, feel free to submit an issue or pull request.
+ Also you can mail to:
+ * qian.huang@intel.com
+ * jiayin.hu@intel.com
+ * rui.sun@intel.com
+ * hao.cheng@intel.com

@@ -19,17 +19,19 @@ package com.intel.ssg.bdt.nlp
 
 import scala.collection.mutable.ArrayBuffer
 
+import breeze.linalg.{Vector => BV}
+
 private[nlp] class Node extends Serializable {
-  var x: Int = 0
-  var y: Int = 0
-  var alpha: Double = 0.0
-  var beta: Double = 0.0
-  var cost: Double = 0.0
-  var bestCost: Double = 0.0
+  var x = 0
+  var y = 0
+  var alpha = 0.0
+  var beta = 0.0
+  var cost = 0.0
+  var bestCost = 0.0
   var prev: Node = _
-  var fVector: Int = 0
-  val lPath: ArrayBuffer[Path] = new ArrayBuffer[Path]()
-  val rPath: ArrayBuffer[Path] = new ArrayBuffer[Path]()
+  var fVector = 0
+  val lPath = new ArrayBuffer[Path]()
+  val rPath = new ArrayBuffer[Path]()
   val MINUS_LOG_EPSILON = 50.0
 
   def logSumExp(x: Double, y: Double, flg: Boolean): Double = {
@@ -59,7 +61,7 @@ private[nlp] class Node extends Serializable {
     beta += cost
   }
 
-  def calExpectation(expected: Array[Double], Z: Double, size: Int,
+  def calExpectation(expected: BV[Double], Z: Double, size: Int,
                      featureCache: ArrayBuffer[Int]): Unit = {
     val c: Double = math.exp(alpha + beta -cost - Z)
 
@@ -72,5 +74,30 @@ private[nlp] class Node extends Serializable {
     for(i <- lPath.indices)
       lPath(i).calExpectation(expected, Z, size, featureCache)
 
+  }
+}
+
+private[nlp] class Path extends Serializable {
+  var rNode = new Node
+  var lNode = new Node
+  var cost = 0.0
+  var fVector = 0
+
+  def calExpectation(expected: BV[Double], Z: Double,
+                     size: Int, featureCache: ArrayBuffer[Int]): Unit = {
+    val c: Double = math.exp(lNode.alpha + cost + rNode.beta - Z)
+    var idx: Int = fVector
+
+    while (featureCache(idx) != -1) {
+      expected(featureCache(idx) + lNode.y * size + rNode.y) += c
+      idx += 1
+    }
+  }
+
+  def add(lnd: Node, rnd: Node): Unit = {
+    lNode = lnd
+    rNode = rnd
+    lNode.rPath.append(this)
+    rNode.lPath.append(this)
   }
 }

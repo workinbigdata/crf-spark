@@ -20,17 +20,19 @@ package com.intel.ssg.bdt.nlp
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.Logging
-import org.riso.numerical.LBFGS
 
-
+/**
+ * CRF with support for multiple parallel runs
+ *
+ * regParam = 1/(2.0 * sigma**2)
+ */
 class CRF private (
-    private var regParam: Double,
     private var freq: Int,
+    private var regParam: Double,
     private var maxIterations: Int,
-    private var eta: Double) extends Serializable with Logging {
-    //TODO add var orthant: Boolean for L1-CRF support
+    private var tolerance: Double) extends Serializable with Logging {
 
-  def this() = this(regParam = 0.5, freq = 1, maxIterations = 100000, eta = 1E-4)
+  def this() = this(freq = 1, regParam = 0.5, maxIterations = 1000, tolerance = 1E-3)
 
   def setRegParam(regParam: Double) = {
     this.regParam = regParam
@@ -48,7 +50,7 @@ class CRF private (
   }
 
   def setEta(eta: Double) = {
-    this.eta = eta
+    this.tolerance = eta
     this
   }
 
@@ -92,58 +94,17 @@ class CRF private (
   def runAlgorithm(
     taggers: RDD[Tagger],
     featureIdx: FeatureIndex): CRFModel = {
-    var oldObj: Double = 1E37
-    var converge: Int = 0
-    var itr: Int = 0
-    val all = taggers.map(_.x.size).reduce(_ + _)
-    val sentences = taggers.count()
-    val iFlag: Array[Int] = Array(0)
-    val diagH = Array.fill(featureIdx.maxID)(0.0)
-    val iPrint = Array(-1, 0)
-    val xTol = 1.0E-16
 
-    while (itr < maxIterations) {
+    logInfo("sentences: %d, features: %d, labels: %d"
+      .format(taggers.count(), featureIdx.maxID, featureIdx.labels.length))
 
-      val bcAlpha: Broadcast[Array[Double]] = taggers.context.broadcast(featureIdx.alpha)
-      val treeDepth = math.ceil(math.log(taggers.partitions.length) / (math.log(2) * 2)).toInt
-      val results : Params = taggers.mapPartitions{ x =>
-        val expected: Array[Double] = Array.fill(featureIdx.maxID)(0.0)
-        var obj: Double = 0.0
-        var errNum: Int = 0
-        var zeroOne: Int = 0
-        while (x.hasNext){
-          val cur = x.next()
-          obj += cur.gradient(expected, bcAlpha.value)
-          val err = cur.eval()
-          errNum += err
-          if(err != 0) zeroOne += 1
-        }
-        Iterator(Params(errNum, zeroOne, expected, obj))
-      }.treeReduce((p1, p2) => p1.merge(p2), treeDepth)
+    // L2 regularization (TODO: add L1 support)
+    val crfLbfgs = new CRFWithLBFGS(new CRFGradient, new L2Updater)
+      .setRegParam(regParam)
+      .setConvergenceTol(tolerance)
 
-      // L2 regularization, TODO add L1 support
-      // regParam = 1/(2.0 * sigma^2)
-      for(k <- featureIdx.alpha.indices) {
-        results.obj += featureIdx.alpha(k) * featureIdx.alpha(k) * regParam
-        results.expected(k) += featureIdx.alpha(k) * regParam * 2.0
-      }
-
-      val diff = if (itr == 0) 1.0 else math.abs((oldObj - results.obj) / oldObj)
-      oldObj = results.obj
-
-      logInfo("iter=%d, terr=%2.5f, serr=%2.5f, act=%d, obj=%2.5f, diff=%2.5f".format(
-        itr, 1.0 * results.err_num / all,
-        1.0 * results.zeroOne / sentences, featureIdx.maxID,
-        results.obj, diff))
-
-      LBFGS.lbfgs(featureIdx.maxID, 5,
-        featureIdx.alpha, results.obj,
-        results.expected, false,
-        diagH, iPrint, 1.0E-3, xTol, iFlag)
-
-      converge = if (diff < eta) converge + 1 else 0
-      itr = if (converge == 3) maxIterations + 1 else itr + 1
-    }
+    featureIdx.initAlpha()
+    featureIdx.alpha = crfLbfgs.optimizer(taggers, featureIdx.alpha)
 
     featureIdx.saveModel
   }

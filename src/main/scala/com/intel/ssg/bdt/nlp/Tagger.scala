@@ -18,7 +18,8 @@
 package com.intel.ssg.bdt.nlp
 
 import scala.collection.mutable.ArrayBuffer
-import org.apache.spark.broadcast.Broadcast
+
+import breeze.linalg.{DenseVector => BDV, Vector => BV}
 
 private[nlp] trait Mode
 
@@ -35,10 +36,10 @@ private[nlp] class Tagger (
   val MINUS_LOG_EPSILON = 50
   var obj = 0.0
   var costFactor = 1.0
-  val x: ArrayBuffer[Array[String]] = new ArrayBuffer[Array[String]]()
-  val node: ArrayBuffer[ArrayBuffer[Node]] = new ArrayBuffer[ArrayBuffer[Node]]
-  val answer: ArrayBuffer[Int] = new ArrayBuffer[Int]()
-  val result: ArrayBuffer[Int] = new ArrayBuffer[Int]()
+  val x = new ArrayBuffer[Array[String]]()
+  val node = new ArrayBuffer[ArrayBuffer[Node]]()
+  val answer = new ArrayBuffer[Int]()
+  val result = new ArrayBuffer[Int]()
   val featureCache = new ArrayBuffer[Int]()
   val featureCacheIndex = new ArrayBuffer[Int]()
 
@@ -103,8 +104,6 @@ private[nlp] class Tagger (
 
   /**
    * Calculate the expectation of each node
-   * https://en.wikipedia.org/wiki/Forward%E2%80%93backward_algorithm
-   * http://www.cs.columbia.edu/~mcollins/fb.pdf
    */
   def forwardBackward(): Unit = {
     require(x.nonEmpty, "This sentence is null!")
@@ -176,10 +175,10 @@ private[nlp] class Tagger (
       result.update(nd.x, nd.y)
       nd = nd.prev
     }
-    cost = -node(x.length - 1)(result(x.length - 1)).bestCost   // TODO cost will be used for nbest
+    cost = -node(x.length - 1)(result(x.length - 1)).bestCost   // (TODO: cost will be used for nbest)
   }
 
-  def gradient(expected: Array[Double], alpha: Array[Double]): Double = {
+  def gradient(expected: BV[Double], alpha: BDV[Double]): Double = {
 
     buildLattice(alpha)
     forwardBackward()
@@ -218,14 +217,6 @@ private[nlp] class Tagger (
     Z - s
   }
 
-  def eval(): Int = {
-    var err: Int = 0
-    for(i <- x.indices)
-      if (answer(i) != result(i))
-        err += 1
-    err
-  }
-
   /**
    * simplify the log likelihood.
    */
@@ -237,15 +228,15 @@ private[nlp] class Tagger (
 
 }
 
-  def parse(alpha: Array[Double]): Unit = {
+  def parse(alpha: BDV[Double]): Unit = {
     buildLattice(alpha)
     if (nBest != 0) {
       forwardBackward()
-    }   //TODO add nBest support
+    }   // (TODO: add nBest support)
     viterbi()
   }
 
-  def buildLattice(alpha: Array[Double]): Unit = {
+  def buildLattice(alpha: BDV[Double]): Unit = {
 
     require(x.nonEmpty, "This sentence is null!")
     rebuildFeatures
@@ -262,32 +253,32 @@ private[nlp] class Tagger (
     }
   }
 
-  def calcCost(n: Node, alpha: Array[Double]): Node = {
+  def calcCost(n: Node, alpha: BDV[Double]): Node = {
     var cd: Double = 0.0
     var idx: Int = n.fVector
     n.cost = 0.0
-    if (alpha.nonEmpty) {
-      while (featureCache(idx) != -1) {
-        cd += alpha(featureCache(idx) + n.y)
-        n.cost = cd * costFactor
-        idx += 1
-      }
+
+    while (featureCache(idx) != -1) {
+      cd += alpha(featureCache(idx) + n.y)
+      n.cost = cd * costFactor
+      idx += 1
     }
+
     n
   }
 
-  def calcCost(p: Path, alpha: Array[Double]): Path = {
+  def calcCost(p: Path, alpha: BDV[Double]): Path = {
     var cd: Double = 0.0
     var idx: Int = p.fVector
     p.cost = 0.0
-    if (alpha.nonEmpty) {
-      while (featureCache(idx) != -1) {
-        cd += alpha(featureCache(idx) +
-          p.lNode.y * ySize + p.rNode.y)
-        p.cost = cd * costFactor
-        idx += 1
-      }
+
+    while (featureCache(idx) != -1) {
+      cd += alpha(featureCache(idx) +
+        p.lNode.y * ySize + p.rNode.y)
+      p.cost = cd * costFactor
+      idx += 1
     }
+
     p
   }
 }
