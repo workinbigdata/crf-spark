@@ -27,7 +27,7 @@ case class CRFModel (
   protected def formatVersion = "1.0"
 
   override def toString: String = {
-    val dicString = dic.map(x => x._1 + "|-|" + x._2.toString)
+    val dicString = dic.map{case(k, v) => k + "|-|" + v.toString}
     s"${head.mkString("\t")}|--|${dicString.mkString("\t")}|--|${alpha.mkString("\t")}"
   }
 

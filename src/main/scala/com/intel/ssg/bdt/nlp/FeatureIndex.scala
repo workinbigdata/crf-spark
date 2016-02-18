@@ -28,7 +28,7 @@ import org.apache.spark.broadcast.Broadcast
 private[nlp] class FeatureIndex extends Serializable {
 
   var maxID = 0
-  var alpha = new BDV[Double](0)
+  var alpha :BDV[Double] = _
   var tokensSize = 0
   val unigramTempls = new ArrayBuffer[String]()
   val bigramTempls = new ArrayBuffer[String]()
@@ -42,6 +42,7 @@ private[nlp] class FeatureIndex extends Serializable {
 
   def initAlpha() = {
     alpha = BDV.zeros[Double](maxID)
+    alpha
   }
   
   def openTagSet(sentence: Sequence): FeatureIndex = {
@@ -160,7 +161,7 @@ private[nlp] class FeatureIndex extends Serializable {
 
   def readModel(models: CRFModel) = {
     val contents: Array[String] = models.head
-    models.dic.foreach(x => dic.update(x._1, (x._2, 1)))
+    models.dic.foreach{case(k, v) => dic.update(k, (v, 1))}
     alpha = new BDV(models.alpha)
 
     var i: Int = 0
@@ -237,7 +238,7 @@ private[nlp] class FeatureIndex extends Serializable {
 
     val dictionaryGram = dictionaryUni.union(dictionaryBi).collect()
 
-    dictionaryGram.foreach( x => dic.update(x._1, x._2))
+    dictionaryGram.foreach{case(k, v) => dic.update(k, v)}
     maxID = dictionaryGram.map(_._2._1).max + labels.size * labels.size
 
   }

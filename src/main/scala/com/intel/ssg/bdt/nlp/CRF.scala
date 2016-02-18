@@ -23,7 +23,6 @@ import org.apache.spark.Logging
 
 /**
  * CRF with support for multiple parallel runs
- *
  * regParam = 1/(2.0 * sigma**2)
  */
 class CRF private (
@@ -95,7 +94,7 @@ class CRF private (
     taggers: RDD[Tagger],
     featureIdx: FeatureIndex): CRFModel = {
 
-    logInfo("sentences: %d, features: %d, labels: %d"
+    logInfo("Starting CRFWithLBFGS Iterations ( sentences: %d, features: %d, labels: %d )"
       .format(taggers.count(), featureIdx.maxID, featureIdx.labels.length))
 
     // L2 regularization (TODO: add L1 support)
@@ -103,8 +102,7 @@ class CRF private (
       .setRegParam(regParam)
       .setConvergenceTol(tolerance)
 
-    featureIdx.initAlpha()
-    featureIdx.alpha = crfLbfgs.optimizer(taggers, featureIdx.alpha)
+    featureIdx.alpha = crfLbfgs.optimizer(taggers, featureIdx.initAlpha())
 
     featureIdx.saveModel
   }

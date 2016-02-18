@@ -33,11 +33,10 @@ private[nlp] class Tagger (
   var nBest = 0
   var cost = 0.0
   var Z = 0.0
-  val MINUS_LOG_EPSILON = 50
   var obj = 0.0
   var costFactor = 1.0
   val x = new ArrayBuffer[Array[String]]()
-  val node = new ArrayBuffer[ArrayBuffer[Node]]()
+  val nodes  = new ArrayBuffer[Node]()
   val answer = new ArrayBuffer[Int]()
   val result = new ArrayBuffer[Int]()
   val featureCache = new ArrayBuffer[Int]()
@@ -50,7 +49,6 @@ private[nlp] class Tagger (
   }
 
   def read(lines: Sequence, feature_idx: FeatureIndex): Unit = {
-    var columns: Array[String] = null
     lines.toArray.foreach{ t =>
       mode match {
       case LearnMode =>
@@ -69,36 +67,21 @@ private[nlp] class Tagger (
    * Set node relationship and its feature index.
    * Node represents a token.
    */
-  def rebuildFeatures: Unit = {
-    var fid = 0
+  def rebuildFeatures(): Unit = {
 
-    for (i <- x.indices) {
-      val nodeList: ArrayBuffer[Node] = new ArrayBuffer[Node]()
-      node.append(nodeList)
-      var k = 0
-      while (k < ySize) {
-        val nd = new Node
-        nd.x = i
-        nd.y = k
-        nd.fVector = featureCacheIndex(fid)
-        nodeList.append(nd)
-        k += 1
-      }
-      fid += 1
-      node.update(i, nodeList)
+    nodes ++= Array.fill(x.length * ySize)(new Node)
+    nodes.zipWithIndex.foreach{ case(n, index) =>
+      n.x = index / ySize
+      n.y = index - n.x * ySize
+      n.fVector = featureCacheIndex(n.x)
     }
 
-    for (i <- 1 until x.size) {
-      for (j <- 0 until ySize) {
-        var k = 0
-        while (k < ySize) {
-          val path: Path = new Path
-          path.add(node(i - 1)(j), node(i)(k))
-          path.fVector = featureCacheIndex(fid)
-          k += 1
-        }
+    nodes.filter(_.x > 0).foreach { n =>
+      val paths = Array.fill(ySize)(new Path)
+      paths.zipWithIndex.foreach { case(p, indexP) =>
+        p.fVector = featureCacheIndex(n.x + x.length - 1)
+        p.add((n.x - 1) * ySize + n.y, n.x * ySize + indexP, nodes)
       }
-      fid += 1
     }
   }
 
@@ -106,76 +89,54 @@ private[nlp] class Tagger (
    * Calculate the expectation of each node
    */
   def forwardBackward(): Unit = {
-    require(x.nonEmpty, "This sentence is null!")
-
-
-    for (i <- x.indices) {
-      for (j <- 0 until ySize) {
-        node(i)(j).calcAlpha()
-      }
-    }
-    var idx: Int = x.length - 1
-    while (idx >= 0) {
-      for (j <- 0 until ySize) {
-        node(idx)(j).calcBeta()
-      }
-      idx -= 1
-    }
-
+    nodes.foreach(_.calcAlpha(nodes))
+    nodes.reverse.foreach(_.calcBeta(nodes))
     Z = 0.0
-    for (i <- 0 until ySize) {
-      Z = logSumExp(Z, node(0)(i).beta, i == 0)
-    }
-
+    nodes.filter(_.x == 0).foreach(n => Z = n.logSumExp(Z, n.beta, n.y == 0))
   }
 
   /**
    * Get the max expectation in the nodes and predicts the most likely label
-   * http://www.cs.utah.edu/~piyush/teaching/structured_prediction.pdf
-   * http://www.weizmann.ac.il/mathusers/vision/courses/2007_2/files/introcrf.pdf
-   * Page 15
    */
   def viterbi(): Unit = {
     var bestCost: Double = -1e37
     var best: Node = null
 
-    for (i <- x.indices) {
-      for (j <- 0 until ySize) {
-        bestCost = -1E37
-        best = null
-        var k = 0
-        while (k < node(i)(j).lPath.length) {
-          val cost = node(i)(j).lPath(k).lNode.bestCost + node(i)(j).lPath(k).cost + node(i)(j).cost
-          if (cost > bestCost) {
-            bestCost = cost
-            best = node(i)(j).lPath(k).lNode
-          }
-          k += 1
+    nodes.foreach { n =>
+      bestCost = -1E37
+      best = null
+      n.lPath.foreach { p =>
+        val cost = nodes(p.lNode).bestCost + p.cost + n.cost
+        if (cost > bestCost) {
+          bestCost = cost
+          best = nodes(p.lNode)
         }
-        node(i)(j).prev = best
-        if (best != null) {
-          node(i)(j).bestCost = bestCost
-        } else {
-          node(i)(j).bestCost = node(i)(j).cost
-        }
+      }
+      n.prev = best
+      best match {
+        case null =>
+          n.bestCost = n.cost
+        case _ =>
+          n.bestCost = bestCost
       }
     }
 
     bestCost = -1E37
-    best = null
 
-    for (j <- 0 until ySize) {
-      if (node(x.length - 1)(j).bestCost > bestCost) {
-        best = node(x.length - 1)(j)
-        bestCost = node(x.length - 1)(j).bestCost
+    nodes.filter(_.x == x.length - 1).foreach { n =>
+      if( n.bestCost > bestCost) {
+        best = n
+        bestCost = n.bestCost
       }
     }
+
     var nd = best
     while (nd != null) {
       result.update(nd.x, nd.y)
       nd = nd.prev
     }
-    cost = -node(x.length - 1)(result(x.length - 1)).bestCost   // (TODO: cost will be used for nbest)
+
+    cost = - nodes((x.length - 1)*ySize + result.last).bestCost   // (TODO: cost will be used for nbest)
   }
 
   def gradient(expected: BV[Double], alpha: BDV[Double]): Double = {
@@ -183,23 +144,21 @@ private[nlp] class Tagger (
     buildLattice(alpha)
     forwardBackward()
 
-    for(i <- x.indices)
-      for(j <- 0 until ySize)
-        node(i)(j).calExpectation(expected, Z, ySize, featureCache)
+    nodes.foreach(_.calExpectation(expected, Z, ySize, featureCache, nodes))
 
     var s: Double = 0.0
     for (i <- x.indices) {
-      var rIdx = node(i)(answer(i)).fVector
+      var rIdx = nodes(i * ySize + answer(i)).fVector
       while (featureCache(rIdx) != -1) {
         expected(featureCache(rIdx) + answer(i)) -= 1.0
         rIdx += 1
       }
-      s += node(i)(answer(i)).cost
+      s += nodes(i * ySize + answer(i)).cost
       var j = 0
-      while (j < node(i)(answer(i)).lPath.length) {
-        val lNode = node(i)(answer(i)).lPath(j).lNode
-        val rNode = node(i)(answer(i)).lPath(j).rNode
-        val lPath = node(i)(answer(i)).lPath(j)
+      while (j < nodes(i * ySize + answer(i)).lPath.length) {
+        val lNode = nodes(nodes(i * ySize + answer(i)).lPath(j).lNode)
+        val rNode = nodes(nodes(i * ySize + answer(i)).lPath(j).rNode)
+        val lPath = nodes(i * ySize + answer(i)).lPath(j)
         if (lNode.y == answer(lNode.x)) {
           rIdx = lPath.fVector
           while (featureCache(rIdx) != -1) {
@@ -213,20 +172,19 @@ private[nlp] class Tagger (
     }
 
     viterbi()
-    node.clear()
+    clear()
     Z - s
   }
 
-  /**
-   * simplify the log likelihood.
-   */
-  def logSumExp(x: Double, y: Double, flg: Boolean): Double = {
-    if (flg) return y
-    val vMin: Double = math.min(x, y)
-    val vMax: Double = math.max(x, y)
-    if (vMax > vMin + MINUS_LOG_EPSILON) vMax else vMax + math.log(math.exp(vMin - vMax) + 1.0)
+  def clear(): Unit = {
+    nodes.foreach(clear)
+    nodes.clear()
+  }
 
-}
+  def clear(node: Node): Unit = {
+    node.lPath.clear()
+    node.rPath.clear()
+  }
 
   def parse(alpha: BDV[Double]): Unit = {
     buildLattice(alpha)
@@ -238,18 +196,11 @@ private[nlp] class Tagger (
 
   def buildLattice(alpha: BDV[Double]): Unit = {
 
-    require(x.nonEmpty, "This sentence is null!")
-    rebuildFeatures
-    for (i <- x.indices) {
-      for (j <- 0 until ySize) {
-        val n = calcCost(node(i)(j), alpha)
-        var k: Int = 0
-        while (k < n.lPath.length) {
-          n.lPath(k) = calcCost(n.lPath(k), alpha)
-          k += 1
-        }
-        node(i)(j) = n
-      }
+    rebuildFeatures()
+    nodes.foreach { n =>
+      val nn = calcCost(n, alpha)
+      nn.lPath.foreach(calcCost(_, alpha))
+      nn
     }
   }
 
@@ -274,7 +225,7 @@ private[nlp] class Tagger (
 
     while (featureCache(idx) != -1) {
       cd += alpha(featureCache(idx) +
-        p.lNode.y * ySize + p.rNode.y)
+        nodes(p.lNode).y * ySize + nodes(p.rNode).y)
       p.cost = cd * costFactor
       idx += 1
     }

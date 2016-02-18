@@ -74,7 +74,7 @@ case class Sequence (sequence: Array[Token]) extends Serializable {
   def toArray: Array[Token] = sequence
 
   def compare(other: Sequence): Int = {
-    this.toArray.zip(other.toArray).map(x => x._1.compare(x._2)).sum
+    this.toArray.zip(other.toArray).map{case(one, other) => one.compare(other)}.sum
   }
 }
 

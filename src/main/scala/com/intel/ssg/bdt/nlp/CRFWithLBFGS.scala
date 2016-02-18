@@ -5,7 +5,6 @@ import scala.collection.mutable
 import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 import breeze.linalg.{DenseVector => BDV, sum => Bsum}
 
-import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.Logging
 import org.apache.spark.mllib.optimization._
@@ -83,13 +82,13 @@ object CRFWithLBFGS extends Logging {
       state = states.next()
     }
 
-    logInfo("LBFGS.runLBFGS finished. last 10 losses %s".format(
-      lossHistory.result().takeRight(10).mkString(", ")))
+//    logInfo("LBFGS.runLBFGS finished. last 10 losses: %s".format(
+//      lossHistory.result().takeRight(10).mkString(" -> ")))
     state.x
   }
 }
 
-class CRFGradient extends Gradient with Logging {
+class CRFGradient extends Gradient {
   def compute(
      data: SparkVector,
      label: Double,
@@ -98,22 +97,14 @@ class CRFGradient extends Gradient with Logging {
     throw new Exception("The original compute() method is not supported")
   }
 
-  def computeCRF(data: RDD[Tagger], weights: BDV[Double]): (BDV[Double], Double) = {
-    val bcWeights: Broadcast[BDV[Double]] = data.context.broadcast(weights)
-    lazy val treeDepth = math.ceil(math.log(data.partitions.length) / (math.log(2) * 2)).toInt
+  def computeCRF(sentences: Iterator[Tagger], weights: BDV[Double]): (BDV[Double], Double) = {
 
-    val (grad, obj) = data.mapPartitions{ sentences =>
-      val expected = BDV.zeros[Double](weights.length)
-      var obj: Double = 0.0
-      while (sentences.hasNext)
-        obj += sentences.next().gradient(expected, bcWeights.value)
-      Iterator((expected, obj))
-    }.treeReduce((p1, p2) => (p1, p2) match {
-      case ((expected1, obj1),(expected2, obj2)) =>
-        (expected1 + expected2, obj1 + obj2)
-      }, treeDepth)
+    val expected = BDV.zeros[Double](weights.length)
+    var obj: Double = 0.0
+    while (sentences.hasNext)
+      obj += sentences.next().gradient(expected, weights)
 
-    (grad, obj)
+    (expected, obj)
   }
 }
 
@@ -137,14 +128,23 @@ class L2Updater extends Updater {
   }
 }
 
-class CostFun(
+private class CostFun(
     taggers: RDD[Tagger],
     gradient: CRFGradient,
     updater: Updater,
     regParam: Double) extends DiffFunction[BDV[Double]] with Serializable {
 
   override def calculate(weigths: BDV[Double]): (Double, BDV[Double]) = {
-    val (expected, obj) = gradient.computeCRF(taggers, weigths)
+
+    val bcWeights = taggers.context.broadcast(weigths)
+    lazy val treeDepth = math.ceil(math.log(taggers.partitions.length) / (math.log(2) * 2)).toInt
+
+    val (expected, obj) = taggers.mapPartitions(sentences =>
+      Iterator(gradient.computeCRF(sentences, bcWeights.value))
+    ).treeReduce((p1, p2) => (p1, p2) match {
+      case ((expected1, obj1),(expected2, obj2)) =>
+        (expected1 + expected2, obj1 + obj2)}, treeDepth)
+
     updater match {
       case updater: L2Updater =>
         val (grad, loss) = updater.computeCRF(weigths, expected, regParam)
